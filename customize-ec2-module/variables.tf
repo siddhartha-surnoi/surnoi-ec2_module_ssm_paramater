@@ -119,10 +119,10 @@ variable "security_groups" {
 variable "instances" {
   description = "Map of EC2 instance configurations"
   type = map(object({
-    instance_type      = string
-    role               = string
-    user_data          = string
-    security_group_ref = string
+    instance_type                      = string
+    iam_instance_profile               = string
+    user_data                          = string
+    security_group_ref                 = string
   }))
 
   default = {
