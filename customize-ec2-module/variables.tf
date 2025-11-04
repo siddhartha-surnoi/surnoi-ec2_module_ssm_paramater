@@ -1,10 +1,4 @@
 
-# variable "vpc_id" {
-#   description = "VPC ID where resources will be created"
-#   type        = string
-#   default     = "vpc-0086f34dccaccfc5c"
-# }
-
 variable "key_pair_name" {
   description = "Name of the key pair to use for EC2 instances"
   type        = string
