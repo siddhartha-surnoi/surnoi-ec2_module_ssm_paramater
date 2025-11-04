@@ -50,11 +50,11 @@ install_aws_cli() {
   unzip -q awscliv2.zip
   sudo ./aws/install
   rm -rf aws awscliv2.zip
-  echo " AWS CLI v2 installed: $(aws --version)"
+  echo "✅ AWS CLI v2 installed: $(aws --version)"
 }
 
 # -------------------------------------------------------
-# Function: Install Apache Maven (system-wide)
+# Function: Install Apache Maven
 # -------------------------------------------------------
 install_maven() {
   MAVEN_VERSION="3.8.9"
@@ -63,14 +63,12 @@ install_maven() {
   MAVEN_URL="https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/${MAVEN_TAR}"
 
   echo "[*] Installing Apache Maven ${MAVEN_VERSION}..."
-
   if command -v mvn >/dev/null 2>&1; then
     echo " Maven already installed: $(mvn -v | head -n 1)"
     return
   fi
 
   cd /tmp
-  echo "Downloading Maven from: ${MAVEN_URL}"
   curl -fsSLO "${MAVEN_URL}" || { echo "❌ Failed to download Maven"; exit 1; }
 
   sudo tar -xzf "${MAVEN_TAR}" -C /opt/
@@ -85,14 +83,8 @@ EOF
   sudo chmod +x /etc/profile.d/maven.sh
   source /etc/profile.d/maven.sh
 
-  # Add global symlink for all users
   sudo ln -sf ${MAVEN_DIR}/bin/mvn /usr/bin/mvn
-
-  if command -v mvn >/dev/null 2>&1; then
-    echo "✅ Maven installed successfully: $(mvn -v | head -n 1)"
-  else
-    echo "❌ Maven installation failed or PATH not updated."
-  fi
+  echo "✅ Maven installed successfully: $(mvn -v | head -n 1)"
 }
 
 # -------------------------------------------------------
@@ -102,7 +94,6 @@ start_and_enable_jenkins() {
   echo " Reloading systemd and enabling Jenkins..."
   sudo systemctl daemon-reload
   sudo systemctl enable jenkins
-  sudo systemctl start jenkins
   sudo systemctl restart jenkins
 }
 
@@ -133,14 +124,20 @@ if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
 
   echo "[6/9] Installing Jenkins..."
   sudo apt-get update -y
-  sudo apt-get install -y jenkins
+  sudo apt-get install -y jenkins || { echo "❌ Jenkins installation failed"; exit 1; }
 
   echo "[7/9] Enabling and starting Docker..."
   sudo systemctl enable docker
   sudo systemctl start docker
 
   echo "[8/9] Adding Jenkins user to Docker group..."
-  sudo usermod -aG docker jenkins
+  if id "jenkins" &>/dev/null; then
+    sudo usermod -aG docker jenkins
+  else
+    echo "⚠️ Jenkins user not found — creating it manually..."
+    sudo useradd -m -s /bin/bash jenkins
+    sudo usermod -aG docker jenkins
+  fi
 
   echo "[9/9] Starting Jenkins service..."
   start_and_enable_jenkins
@@ -151,47 +148,38 @@ if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
 elif [[ "$OS" == "amzn" || "$OS" == "rhel" || "$OS" == "centos" ]]; then
   echo " Installing Jenkins on Amazon Linux / RHEL / CentOS..."
 
-  echo "[1/9] Updating system packages..."
   if command -v dnf >/dev/null 2>&1; then
     sudo dnf upgrade -y
   else
     sudo yum update -y
   fi
 
-  echo "[2/9] Adding Jenkins repository..."
   sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
   sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
 
-  echo "[3/9] Installing dependencies (Java 21, Docker, Git)..."
   if command -v dnf >/dev/null 2>&1; then
     sudo dnf install -y fontconfig java-21-openjdk docker git
   else
     sudo yum install -y fontconfig java-21-openjdk docker git
   fi
 
-  echo "[4/9] Installing AWS CLI..."
   install_aws_cli
-
-  echo "[5/9] Installing Maven..."
   install_maven
 
-  echo "[6/9] Installing Jenkins..."
   if command -v dnf >/dev/null 2>&1; then
     sudo dnf install -y jenkins
   else
     sudo yum install -y jenkins
   fi
 
-  echo "[7/9] Enabling and starting Docker..."
   sudo systemctl enable docker
   sudo systemctl start docker
 
-  echo "[8/9] Adding Jenkins user to Docker group..."
-  sudo usermod -aG docker jenkins
+  if id "jenkins" &>/dev/null; then
+    sudo usermod -aG docker jenkins
+  fi
 
-  echo "[9/9] Enabling and restarting Jenkins service..."
   start_and_enable_jenkins
-
 else
   echo " Unsupported OS: $OS"
   exit 1
@@ -208,6 +196,9 @@ echo
 echo " Maven version check:"
 mvn -v || echo " Maven not found or PATH not updated yet (try re-login)."
 echo
+echo " Jenkins Service Status:"
+sudo systemctl status jenkins --no-pager | head -n 10
+echo
 echo " Initial Admin Password:"
-sudo cat /var/lib/jenkins/secrets/initialAdminPassword || echo "Jenkins may still be initializing..."
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword 2>/dev/null || echo "Jenkins may still be initializing..."
 echo "==============================================="
