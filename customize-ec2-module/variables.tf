@@ -77,61 +77,59 @@ variable "security_groups" {
       ]
     }
 
-        java_securitygroup = {
-       name        = "backend-securitygroup"
-       description = "Allow SSH and backend port 8080"
-       ingress = [
-         {
-           from_port   = 22
-           to_port     = 22
-           protocol    = "tcp"
-           cidr_blocks = ["0.0.0.0/0"]
-         },
-         {
-           from_port   = 8080
-           to_port     = 8080
+    java_securitygroup = {
+      name        = "backend-securitygroup"
+      description = "Allow SSH and backend port 8080"
+      ingress = [
+        {
+          from_port   = 22
+          to_port     = 22
           protocol    = "tcp"
           cidr_blocks = ["0.0.0.0/0"]
-         }
-       ]
-       egress = [
-         {
-           from_port   = 0
-           to_port     = 0
-           protocol    = "-1"
-           cidr_blocks = ["0.0.0.0/0"]
-         }
-       ]
-     }
-  }
-}
+        },
+        {
+          from_port   = 8080
+          to_port     = 8080
+          protocol    = "tcp"
+          cidr_blocks = ["0.0.0.0/0"]
+        }
+      ]
+      egress = [
+        {
+          from_port   = 0
+          to_port     = 0
+          protocol    = "-1"
+          cidr_blocks = ["0.0.0.0/0"]
+        }
+      ]
+    }
 
-ml_securitygroup = {
-       name        = "ml-securitygroup"
-       description = "Allow SSH and backend port 8000"
-       ingress = [
-         {
-           from_port   = 22
-           to_port     = 22
-           protocol    = "tcp"
-           cidr_blocks = ["0.0.0.0/0"]
-         },
-         {
-           from_port   = 8000
-           to_port     = 8000
+    ml_securitygroup = {
+      name        = "ml-securitygroup"
+      description = "Allow SSH and ML backend port 8000"
+      ingress = [
+        {
+          from_port   = 22
+          to_port     = 22
           protocol    = "tcp"
           cidr_blocks = ["0.0.0.0/0"]
-         }
-       ]
-       egress = [
-         {
-           from_port   = 0
-           to_port     = 0
-           protocol    = "-1"
-           cidr_blocks = ["0.0.0.0/0"]
-         }
-       ]
-     }
+        },
+        {
+          from_port   = 8000
+          to_port     = 8000
+          protocol    = "tcp"
+          cidr_blocks = ["0.0.0.0/0"]
+        }
+      ]
+      egress = [
+        {
+          from_port   = 0
+          to_port     = 0
+          protocol    = "-1"
+          cidr_blocks = ["0.0.0.0/0"]
+        }
+      ]
+    }
   }
 }
 
@@ -141,36 +139,39 @@ ml_securitygroup = {
 variable "instances" {
   description = "Map of EC2 instance configurations"
   type = map(object({
-    instance_type                      = string
-    iam_instance_profile               = string
-    user_data                          = string
-    security_group_ref                 = string
+    instance_type        = string
+    iam_instance_profile = string
+    user_data            = string
+    security_group_ref   = string
   }))
 
   default = {
     jenkins-master = {
-      instance_type                       = "t3a.small"
-      iam_instance_profile                = "IAM-ECR-Role"  #IAM-ECR-Role
-      user_data                           = "user_data/user_data.jenkins.sh"
-      security_group_ref                  = "jenkins_securitygroup"
+      instance_type         = "t3a.small"
+      iam_instance_profile  = "IAM-ECR-Role"
+      user_data             = "user_data/user_data.jenkins.sh"
+      security_group_ref    = "jenkins_securitygroup"
     }
-java-agent-1 = {
-      instance_type                       = "t3a.small"
-      iam_instance_profile                = ""  #IAM-ECR-Role
-      user_data                           = "user_data/user_data.backend.sh"
-      security_group_ref                  = "java_securitygroup"
+
+    java-agent-1 = {
+      instance_type         = "t3a.small"
+      iam_instance_profile  = null
+      user_data             = "user_data/user_data.backend.sh"
+      security_group_ref    = "java_securitygroup"
     }
-java-agent-2 = {
-      instance_type                       = "t3a.small"
-      iam_instance_profile                = ""  #IAM-ECR-Role
-      user_data                           = "user_data/user_data.backend.sh"
-      security_group_ref                  = "java_securitygroup"
+
+    java-agent-2 = {
+      instance_type         = "t3a.small"
+      iam_instance_profile  = null
+      user_data             = "user_data/user_data.backend.sh"
+      security_group_ref    = "java_securitygroup"
     }
-   ml-agent = {
-      instance_type                       = "t3a.small"
-      iam_instance_profile                = ""  #IAM-ECR-Role
-      user_data                           = "user_data/user.data.ml.sh"
-      security_group_ref                  = "ml_securitygroup"
+
+    ml-agent = {
+      instance_type         = "t3a.small"
+      iam_instance_profile  = null
+      user_data             = "user_data/user_data.ml.sh"
+      security_group_ref    = "ml_securitygroup"
     }
   }
 }
