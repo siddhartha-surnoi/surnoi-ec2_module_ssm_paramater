@@ -170,7 +170,7 @@ variable "instances" {
     ml-agent = {
       instance_type         = "t3a.small"
       iam_instance_profile  = null
-      user_data             = "user_data/user_data.ml.sh"
+      user_data             = "user_data/user.data.ml.sh"
       security_group_ref    = "ml_securitygroup"
     }
   }
