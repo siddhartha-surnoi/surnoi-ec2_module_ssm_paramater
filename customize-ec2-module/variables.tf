@@ -127,12 +127,17 @@ variable "instances" {
 
   default = {
     jenkins-master = {
-      instance_type                       = "t3.small"
+      instance_type                       = "t3a.small"
       iam_instance_profile                = "IAM-ECR-Role"  #IAM-ECR-Role
       user_data                           = "user_data/user_data.jenkins.sh"
       security_group_ref                  = "jenkins_securitygroup"
     }
-
+    backend = {
+      instance_type                       = "t3a.small"
+      iam_instance_profile                = "IAM-ECR-Role"  #IAM-ECR-Role
+      user_data                           = "user_data/"
+      security_group_ref                  = ""
+    }
    
   }
 }
