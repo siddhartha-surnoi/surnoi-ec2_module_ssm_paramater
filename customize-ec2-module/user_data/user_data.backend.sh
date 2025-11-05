@@ -5,186 +5,165 @@ LOG_FILE="/var/log/backend_setup.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "==============================================="
-echo " Backend Server Setup Script - Starting "
+echo " Backend Environment Setup Script - Starting "
 echo "==============================================="
 
 # -------------------------------------------------------
 # Detect OS type
 # -------------------------------------------------------
 if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    OS=$ID
+  . /etc/os-release
+  OS=$ID
 else
-    echo "Cannot detect OS. Exiting..."
-    exit 1
+  echo " Cannot detect OS. Exiting..."
+  exit 1
 fi
 
-DEVOPS_USER="devops"
-JENKINS_USER="jenkins"
-
-echo "Detected OS: $OS"
-echo "DevOps User: $DEVOPS_USER"
-echo "Jenkins User: $JENKINS_USER"
+echo " Detected OS: $OS"
 
 # -------------------------------------------------------
 # Function: Install AWS CLI v2
 # -------------------------------------------------------
 install_aws_cli() {
-    if command -v aws >/dev/null 2>&1; then
-        echo "AWS CLI already installed: $(aws --version)"
-        return
-    fi
-    echo "[*] Installing AWS CLI v2..."
-    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
-    unzip -q /tmp/awscliv2.zip -d /tmp
-    sudo /tmp/aws/install
-    rm -rf /tmp/aws /tmp/awscliv2.zip
-    echo "AWS CLI installed: $(aws --version)"
+  echo "[*] Installing AWS CLI v2..."
+  if command -v aws >/dev/null 2>&1; then
+    echo " AWS CLI already installed: $(aws --version)"
+    return
+  fi
+
+  echo "Downloading AWS CLI v2 package..."
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+  if [ ! -f awscliv2.zip ]; then
+    echo " Failed to download AWS CLI package"
+    exit 1
+  fi
+
+  echo "Installing unzip..."
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get install -y unzip >/dev/null
+  elif command -v yum >/dev/null 2>&1; then
+    sudo yum install -y unzip >/dev/null
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y unzip >/dev/null
+  fi
+
+  unzip -q awscliv2.zip
+  sudo ./aws/install
+  rm -rf aws awscliv2.zip
+  echo "✅ AWS CLI v2 installed: $(aws --version)"
 }
 
 # -------------------------------------------------------
 # Function: Install Apache Maven
 # -------------------------------------------------------
 install_maven() {
-    MAVEN_VERSION="3.9.11"
-    MAVEN_DIR="/opt/apache-maven-${MAVEN_VERSION}"
-    MAVEN_TAR="apache-maven-${MAVEN_VERSION}-bin.tar.gz"
-    MAVEN_URL="https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/${MAVEN_TAR}"
+  MAVEN_VERSION="3.8.9"
+  MAVEN_DIR="/opt/apache-maven-${MAVEN_VERSION}"
+  MAVEN_TAR="apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+  MAVEN_URL="https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/${MAVEN_TAR}"
 
-    if command -v mvn >/dev/null 2>&1; then
-        echo "Maven already installed: $(mvn -v | head -n1)"
-        return
-    fi
+  echo "[*] Installing Apache Maven ${MAVEN_VERSION}..."
+  if command -v mvn >/dev/null 2>&1; then
+    echo " Maven already installed: $(mvn -v | head -n 1)"
+    return
+  fi
 
-    echo "[*] Installing Apache Maven ${MAVEN_VERSION}..."
-    curl -fsSL "${MAVEN_URL}" -o "/tmp/${MAVEN_TAR}"
-    sudo tar -xzf "/tmp/${MAVEN_TAR}" -C /opt/
-    rm -f "/tmp/${MAVEN_TAR}"
+  cd /tmp
+  curl -fsSLO "${MAVEN_URL}" || { echo "❌ Failed to download Maven"; exit 1; }
 
-    # Environment variables
-    if [ ! -f /etc/profile.d/maven.sh ]; then
-        echo "export MAVEN_HOME=${MAVEN_DIR}" | sudo tee /etc/profile.d/maven.sh >/dev/null
-        echo 'export PATH=$PATH:$MAVEN_HOME/bin' | sudo tee -a /etc/profile.d/maven.sh >/dev/null
-        sudo chmod +x /etc/profile.d/maven.sh
-    fi
-    source /etc/profile.d/maven.sh
-    echo "Maven installed: $(mvn -v | head -n1)"
+  sudo tar -xzf "${MAVEN_TAR}" -C /opt/
+  rm -f "${MAVEN_TAR}"
+
+  echo "Configuring Maven environment..."
+  sudo tee /etc/profile.d/maven.sh >/dev/null <<EOF
+export MAVEN_HOME=${MAVEN_DIR}
+export PATH=\$PATH:\$MAVEN_HOME/bin
+EOF
+
+  sudo chmod +x /etc/profile.d/maven.sh
+  source /etc/profile.d/maven.sh
+
+  sudo ln -sf ${MAVEN_DIR}/bin/mvn /usr/bin/mvn
+  echo "✅ Maven installed successfully: $(mvn -v | head -n 1)"
 }
 
-# -------------------------------------------------------
-# Function: Install Java 21
-# -------------------------------------------------------
-install_java() {
-    if command -v java >/dev/null 2>&1; then
-        echo "Java already installed: $(java -version 2>&1 | head -n1)"
-        return
-    fi
-
-    echo "[*] Installing Java 21..."
-    if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
-        sudo apt-get install -y openjdk-21-jdk
-    else
-        if command -v dnf >/dev/null 2>&1; then
-            sudo dnf install -y java-21-openjdk
-        else
-            sudo yum install -y java-21-openjdk
-        fi
-    fi
-    java -version
-}
-
-# -------------------------------------------------------
-# Function: Install Docker & Docker Compose Plugin
-# -------------------------------------------------------
-install_docker() {
-    if command -v docker >/dev/null 2>&1; then
-        echo "Docker already installed: $(docker --version)"
-    else
-        echo "[*] Installing Docker..."
-        if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
-            sudo apt-get install -y docker.io
-            sudo apt-get install -y docker-compose-plugin
-        else
-            if command -v dnf >/dev/null 2>&1; then
-                sudo dnf install -y docker
-                sudo dnf install -y docker-compose-plugin
-            else
-                sudo yum install -y docker
-                sudo yum install -y docker-compose-plugin
-            fi
-        fi
-    fi
-
-    sudo systemctl enable docker
-    sudo systemctl start docker
-    sudo usermod -aG docker "$DEVOPS_USER" || true
-    sudo usermod -aG docker "$JENKINS_USER" || true
-    echo "Docker installed and running: $(docker --version)"
-    echo "Docker Compose plugin version: $(docker compose version)"
-}
-
-# -------------------------------------------------------
-# Function: Install Git
-# -------------------------------------------------------
-install_git() {
-    if command -v git >/dev/null 2>&1; then
-        echo "Git already installed: $(git --version)"
-        return
-    fi
-    echo "[*] Installing Git..."
-    if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
-        sudo apt-get install -y git
-    else
-        if command -v dnf >/dev/null 2>&1; then
-            sudo dnf install -y git
-        else
-            sudo yum install -y git
-        fi
-    fi
-    git --version
-}
-
-# -------------------------------------------------------
-# Function: Create Jenkins user if missing
-# -------------------------------------------------------
-create_jenkins_user() {
-    if ! id "$JENKINS_USER" &>/dev/null; then
-        sudo useradd -m -s /bin/bash "$JENKINS_USER"
-        echo "Jenkins user created."
-    else
-        echo "Jenkins user already exists."
-    fi
-}
-
-# -------------------------------------------------------
-# Main Installation Flow
-# -------------------------------------------------------
-echo "[1/8] Updating package repositories..."
+# =====================================================================
+# Ubuntu / Debian Setup
+# =====================================================================
 if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
-    sudo apt-get update -y
+  echo " Setting up backend environment on Ubuntu/Debian..."
+
+  echo "[1/6] Updating system packages..."
+  sudo apt-get update -y && sudo apt-get upgrade -y
+
+  echo "[2/6] Installing dependencies (Java 21, Docker, Git)..."
+  sudo apt-get install -y wget curl fontconfig openjdk-21-jdk docker.io git
+
+  echo "[3/6] Installing AWS CLI..."
+  install_aws_cli
+
+  echo "[4/6] Installing Maven..."
+  install_maven
+
+  echo "[5/6] Enabling and starting Docker..."
+  sudo systemctl enable docker
+  sudo systemctl start docker
+
+  echo "[6/6] Adding users (ubuntu/ec2-user) to Docker group..."
+  CURRENT_USER=$(whoami)
+  sudo usermod -aG docker "$CURRENT_USER"
+  echo "✅ Added $CURRENT_USER to docker group"
+
+# =====================================================================
+# Amazon Linux / RHEL / CentOS Setup
+# =====================================================================
+elif [[ "$OS" == "amzn" || "$OS" == "rhel" || "$OS" == "centos" ]]; then
+  echo " Setting up backend environment on Amazon Linux / RHEL / CentOS..."
+
+  if command -v dnf >/dev/null 2>&1; then
+    sudo dnf upgrade -y
+  else
+    sudo yum update -y
+  fi
+
+  if command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y fontconfig java-21-openjdk docker git
+  else
+    sudo yum install -y fontconfig java-21-openjdk docker git
+  fi
+
+  install_aws_cli
+  install_maven
+
+  sudo systemctl enable docker
+  sudo systemctl start docker
+
+  CURRENT_USER=$(whoami)
+  sudo usermod -aG docker "$CURRENT_USER"
+  echo "✅ Added $CURRENT_USER to docker group"
 else
-    if command -v dnf >/dev/null 2>&1; then
-        sudo dnf upgrade -y
-    else
-        sudo yum update -y
-    fi
+  echo " Unsupported OS: $OS"
+  exit 1
 fi
 
-install_aws_cli
-install_java
-install_git
-install_docker
-install_maven
-create_jenkins_user
-
+# =====================================================================
+# Final Output
+# =====================================================================
 echo "==============================================="
-echo "  Backend Server Setup Completed Successfully "
+echo " Backend Environment Setup Completed Successfully!"
 echo "==============================================="
-echo "Installed components:"
-echo " - Java 21"
-echo " - Docker & Docker Compose plugin"
-echo " - Git"
-echo " - Maven 3.9.11"
-echo " - AWS CLI v2"
-echo "Docker group assigned to users: $DEVOPS_USER, $JENKINS_USER"
+echo
+echo " Java version:"
+java -version
+echo
+echo " Maven version:"
+mvn -v
+echo
+echo " Docker version:"
+docker --version
+echo
+echo " AWS CLI version:"
+aws --version
+echo
+echo "✅ You may need to re-login for Docker group changes to take effect."
 echo "==============================================="
