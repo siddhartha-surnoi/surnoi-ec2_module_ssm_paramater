@@ -104,33 +104,7 @@ variable "security_groups" {
       ]
     }
 
-    ml_securitygroup = {
-      name        = "ml-securitygroup"
-      description = "Allow SSH and ML backend port 8000"
-      ingress = [
-        {
-          from_port   = 22
-          to_port     = 22
-          protocol    = "tcp"
-          cidr_blocks = ["0.0.0.0/0"]
-        },
-        {
-          from_port   = 8000
-          to_port     = 8000
-          protocol    = "tcp"
-          cidr_blocks = ["0.0.0.0/0"]
-        }
-      ]
-      egress = [
-        {
-          from_port   = 0
-          to_port     = 0
-          protocol    = "-1"
-          cidr_blocks = ["0.0.0.0/0"]
-        }
-      ]
-    }
-  }
+     }
 }
 
 # ---------------------------
@@ -160,18 +134,8 @@ variable "instances" {
       security_group_ref    = "java_securitygroup"
     }
 
-    java-agent-2 = {
-      instance_type         = "t3a.small"
-      iam_instance_profile  = null
-      user_data             = "user_data/user_data.backend.sh"
-      security_group_ref    = "java_securitygroup"
-    }
 
-    ml-agent = {
-      instance_type         = "t3a.small"
-      iam_instance_profile  = null
-      user_data             = "user_data/user.data.ml.sh"
-      security_group_ref    = "ml_securitygroup"
-    }
+
+   
   }
 }
