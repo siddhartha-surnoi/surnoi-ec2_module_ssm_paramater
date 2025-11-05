@@ -57,7 +57,7 @@ install_aws_cli() {
 }
 
 # -------------------------------
-# Install Maven 3.9.11
+# Install Apache Maven 3.9.11
 # -------------------------------
 install_maven() {
   MAVEN_VERSION="3.9.11"
@@ -76,7 +76,6 @@ install_maven() {
   sudo tar -xzf "${MAVEN_TAR}" -C /opt/
   rm -f "${MAVEN_TAR}"
 
-  # Permanent environment variables
   sudo tee /etc/profile.d/maven.sh >/dev/null <<EOF
 export MAVEN_HOME=${MAVEN_DIR}
 export PATH=\$PATH:\$MAVEN_HOME/bin
@@ -86,6 +85,22 @@ EOF
 
   sudo ln -sf ${MAVEN_DIR}/bin/mvn /usr/bin/mvn
   echo "✅ Maven installed successfully: $(mvn -v | head -n 1)"
+}
+
+# -------------------------------
+# Install Docker Compose
+# -------------------------------
+install_docker_compose() {
+  echo "[*] Installing Docker Compose..."
+  DOCKER_COMPOSE_VERSION="v2.22.2"
+  sudo curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+  sudo chmod +x /usr/local/bin/docker-compose
+
+  if command -v docker-compose >/dev/null 2>&1; then
+    echo "✅ Docker Compose installed: $(docker-compose --version)"
+  else
+    echo "❌ Docker Compose installation failed"
+  fi
 }
 
 # -------------------------------
@@ -130,42 +145,35 @@ start_and_enable_jenkins() {
 }
 
 # -------------------------------
-# OS-specific Jenkins Installation
+# Jenkins Installation
 # -------------------------------
 if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
   echo " Installing Jenkins on Ubuntu/Debian..."
-  sudo apt-get update -y && sudo apt-get upgrade -y
   install_dependencies
   install_aws_cli
   install_maven
+  install_docker_compose
 
-  echo "[*] Adding Jenkins repository..."
   sudo mkdir -p /etc/apt/keyrings
   curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | sudo tee /etc/apt/keyrings/jenkins-keyring.asc >/dev/null
   echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" | sudo tee /etc/apt/sources.list.d/jenkins.list >/dev/null
   sudo apt-get update -y
-  sudo apt-get install -y jenkins || { echo "❌ Jenkins installation failed"; exit 1; }
+  sudo apt-get install -y jenkins
 
 elif [[ "$OS" == "amzn" || "$OS" == "rhel" || "$OS" == "centos" ]]; then
   echo " Installing Jenkins on Amazon Linux / RHEL / CentOS..."
-  if command -v dnf >/dev/null 2>&1; then
-    sudo dnf upgrade -y
-  else
-    sudo yum update -y
-  fi
-
-  sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
-  sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
   install_dependencies
   install_aws_cli
   install_maven
+  install_docker_compose
 
+  sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
+  sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
   if command -v dnf >/dev/null 2>&1; then
     sudo dnf install -y jenkins
   else
     sudo yum install -y jenkins
   fi
-
 else
   echo " Unsupported OS: $OS"
   exit 1
@@ -180,16 +188,22 @@ add_users_to_docker
 start_and_enable_jenkins
 
 # -------------------------------
+# Docker verification test
+# -------------------------------
+echo "[*] Verifying Docker by running hello-world container..."
+sudo docker run --rm hello-world || echo "⚠️ Docker test failed. Check Docker service."
+
+# -------------------------------
 # Verification & Logging
 # -------------------------------
-echo "[*] Verifying installations..."
+echo "[*] Verifying installed versions..."
 echo "==== Installed Versions ====" > "$VERSION_LOG"
 java -version 2>&1 | tee -a "$VERSION_LOG"
 docker --version 2>&1 | tee -a "$VERSION_LOG"
+docker-compose --version 2>&1 | tee -a "$VERSION_LOG"
 git --version 2>&1 | tee -a "$VERSION_LOG"
 mvn -v 2>&1 | tee -a "$VERSION_LOG"
 aws --version 2>&1 | tee -a "$VERSION_LOG"
-docker-compose --version 2>/dev/null || echo "docker-compose not installed" >> "$VERSION_LOG"
 
 # -------------------------------
 # Final Output
