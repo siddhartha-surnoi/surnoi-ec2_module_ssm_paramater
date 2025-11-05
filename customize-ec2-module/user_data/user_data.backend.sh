@@ -9,7 +9,9 @@ echo "==============================================="
 echo " Backend Server Setup Script - Starting "
 echo "==============================================="
 
+# -------------------------------
 # Detect OS
+# -------------------------------
 if [ -f /etc/os-release ]; then
   . /etc/os-release
   OS=$ID
@@ -32,11 +34,13 @@ install_aws_cli() {
   command -v aws >/dev/null 2>&1 && { echo " AWS CLI already installed: $(aws --version)"; return; }
   curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
   [[ ! -f /tmp/awscliv2.zip ]] && { echo "❌ Failed to download AWS CLI"; exit 1; }
+  
   if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get install -y unzip >/dev/null
   else
     sudo yum install -y unzip >/dev/null || sudo dnf install -y unzip >/dev/null
   fi
+
   unzip -q /tmp/awscliv2.zip -d /tmp
   sudo /tmp/aws/install
   rm -rf /tmp/aws /tmp/awscliv2.zip
@@ -48,19 +52,24 @@ install_maven() {
   MAVEN_DIR="/opt/apache-maven-${MAVEN_VERSION}"
   MAVEN_TAR="apache-maven-${MAVEN_VERSION}-bin.tar.gz"
   MAVEN_URL="https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/${MAVEN_TAR}"
-  echo "[*] Installing Maven ${MAVEN_VERSION}..."
+
+  echo "[*] Installing Apache Maven ${MAVEN_VERSION}..."
   command -v mvn >/dev/null 2>&1 && { echo " Maven already installed: $(mvn -v | head -n1)"; return; }
+
   cd /tmp
   curl -fsSLO "${MAVEN_URL}" || { echo "❌ Failed to download Maven"; exit 1; }
   sudo tar -xzf "${MAVEN_TAR}" -C /opt/
   rm -f "${MAVEN_TAR}"
+
   sudo tee /etc/profile.d/maven.sh >/dev/null <<EOF
 export MAVEN_HOME=${MAVEN_DIR}
 export PATH=\$PATH:\$MAVEN_HOME/bin
 EOF
+
   sudo chmod +x /etc/profile.d/maven.sh
   source /etc/profile.d/maven.sh
   sudo ln -sf ${MAVEN_DIR}/bin/mvn /usr/bin/mvn
+
   echo "✅ Maven installed: $(mvn -v | head -n1)"
 }
 
@@ -128,7 +137,8 @@ echo "[*] Docker hello-world test..."
 sudo docker run --rm hello-world || echo "⚠️ Docker test failed"
 
 echo "==============================================="
-echo " Backend Setup Completed Successfully!"
+echo " Backend Server Setup Completed Successfully!"
 echo " Versions logged in $VERSION_LOG"
 echo " Logs: $LOG_FILE"
+echo " Docker users: ${USERS_TO_ADD[*]}"
 echo "==============================================="
