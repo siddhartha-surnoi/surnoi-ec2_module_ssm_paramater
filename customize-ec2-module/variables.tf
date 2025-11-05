@@ -129,13 +129,9 @@ variable "instances" {
 
     java-agent-1 = {
       instance_type         = "t3a.small"
-      iam_instance_profile  = null
+      iam_instance_profile  = "IAM-ECR-Role"
       user_data             = "user_data/user_data.backend.sh"
       security_group_ref    = "java_securitygroup"
     }
-
-
-
-   
   }
 }
