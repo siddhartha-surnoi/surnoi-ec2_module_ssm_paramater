@@ -9,9 +9,7 @@ echo "==============================================="
 echo " Backend Server Setup Script - Starting "
 echo "==============================================="
 
-# -------------------------------
 # Detect OS
-# -------------------------------
 if [ -f /etc/os-release ]; then
   . /etc/os-release
   OS=$ID
@@ -27,20 +25,12 @@ echo "Detected OS: $OS"
 echo "Current User: $CURRENT_USER"
 
 # -------------------------------
-# Functions
-# -------------------------------
 install_aws_cli() {
   echo "[*] Installing AWS CLI v2..."
-  command -v aws >/dev/null 2>&1 && { echo " AWS CLI already installed: $(aws --version)"; return; }
+  command -v aws >/dev/null 2>&1 && { echo "AWS CLI already installed: $(aws --version)"; return; }
   curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
-  [[ ! -f /tmp/awscliv2.zip ]] && { echo "❌ Failed to download AWS CLI"; exit 1; }
-  
-  if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get install -y unzip >/dev/null
-  else
-    sudo yum install -y unzip >/dev/null || sudo dnf install -y unzip >/dev/null
-  fi
-
+  if [[ ! -f /tmp/awscliv2.zip ]]; then echo "❌ Failed to download AWS CLI"; exit 1; fi
+  if command -v apt-get >/dev/null 2>&1; then sudo apt-get install -y unzip; else sudo yum install -y unzip || sudo dnf install -y unzip; fi
   unzip -q /tmp/awscliv2.zip -d /tmp
   sudo /tmp/aws/install
   rm -rf /tmp/aws /tmp/awscliv2.zip
@@ -54,7 +44,7 @@ install_maven() {
   MAVEN_URL="https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/${MAVEN_TAR}"
 
   echo "[*] Installing Apache Maven ${MAVEN_VERSION}..."
-  command -v mvn >/dev/null 2>&1 && { echo " Maven already installed: $(mvn -v | head -n1)"; return; }
+  command -v mvn >/dev/null 2>&1 && { echo "Maven already installed: $(mvn -v | head -n1)"; return; }
 
   cd /tmp
   curl -fsSLO "${MAVEN_URL}" || { echo "❌ Failed to download Maven"; exit 1; }
@@ -75,6 +65,7 @@ EOF
 
 install_docker() {
   echo "[*] Installing Docker & Docker Compose plugin..."
+  sudo rm -f /usr/local/bin/docker-compose
   if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
     sudo apt-get update -y
     sudo apt-get install -y docker.io docker-compose-plugin
@@ -87,20 +78,16 @@ install_docker() {
   fi
   sudo systemctl enable docker
   sudo systemctl start docker
-  echo "✅ Docker & Compose installed"
 }
 
 install_dependencies() {
-  echo "[*] Installing dependencies: Git, Curl, Wget, Fontconfig, Java 21..."
+  echo "[*] Installing Git, Curl, Wget, Fontconfig, Java 21..."
   if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
-    sudo apt-get update -y
     sudo apt-get install -y git curl wget fontconfig openjdk-21-jdk unzip
   else
     if command -v dnf >/dev/null 2>&1; then
-      sudo dnf upgrade -y
       sudo dnf install -y git curl wget fontconfig java-21-openjdk unzip
     else
-      sudo yum update -y
       sudo yum install -y git curl wget fontconfig java-21-openjdk unzip
     fi
   fi
@@ -138,7 +125,7 @@ sudo docker run --rm hello-world || echo "⚠️ Docker test failed"
 
 echo "==============================================="
 echo " Backend Server Setup Completed Successfully!"
-echo " Versions logged in $VERSION_LOG"
 echo " Logs: $LOG_FILE"
+echo " Versions: $VERSION_LOG"
 echo " Docker users: ${USERS_TO_ADD[*]}"
 echo "==============================================="
