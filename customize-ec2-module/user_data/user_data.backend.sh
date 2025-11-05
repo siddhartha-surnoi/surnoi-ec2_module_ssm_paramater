@@ -9,9 +9,7 @@ echo "==============================================="
 echo " Backend Server Setup Script - Starting "
 echo "==============================================="
 
-# -------------------------------
 # Detect OS
-# -------------------------------
 if [ -f /etc/os-release ]; then
   . /etc/os-release
   OS=$ID
@@ -21,94 +19,70 @@ else
 fi
 
 CURRENT_USER=$(whoami)
-USERS_TO_ADD=("jenkins" "$CURRENT_USER" "ubuntu" "ec2-user")
+USERS_TO_ADD=("$CURRENT_USER" "ubuntu" "ec2-user")
 
 echo "Detected OS: $OS"
 echo "Current User: $CURRENT_USER"
 
 # -------------------------------
-# Install Maven 3.9.11
+# Functions
 # -------------------------------
+install_aws_cli() {
+  echo "[*] Installing AWS CLI v2..."
+  command -v aws >/dev/null 2>&1 && { echo " AWS CLI already installed: $(aws --version)"; return; }
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+  [[ ! -f /tmp/awscliv2.zip ]] && { echo "❌ Failed to download AWS CLI"; exit 1; }
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get install -y unzip >/dev/null
+  else
+    sudo yum install -y unzip >/dev/null || sudo dnf install -y unzip >/dev/null
+  fi
+  unzip -q /tmp/awscliv2.zip -d /tmp
+  sudo /tmp/aws/install
+  rm -rf /tmp/aws /tmp/awscliv2.zip
+  echo "✅ AWS CLI v2 installed: $(aws --version)"
+}
+
 install_maven() {
   MAVEN_VERSION="3.9.11"
   MAVEN_DIR="/opt/apache-maven-${MAVEN_VERSION}"
   MAVEN_TAR="apache-maven-${MAVEN_VERSION}-bin.tar.gz"
   MAVEN_URL="https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/${MAVEN_TAR}"
-
-  echo "[*] Installing Apache Maven ${MAVEN_VERSION}..."
-  if command -v mvn >/dev/null 2>&1; then
-    echo " Maven already installed: $(mvn -v | head -n 1)"
-    return
-  fi
-
+  echo "[*] Installing Maven ${MAVEN_VERSION}..."
+  command -v mvn >/dev/null 2>&1 && { echo " Maven already installed: $(mvn -v | head -n1)"; return; }
   cd /tmp
-  curl -fsSLO "${MAVEN_URL}"
+  curl -fsSLO "${MAVEN_URL}" || { echo "❌ Failed to download Maven"; exit 1; }
   sudo tar -xzf "${MAVEN_TAR}" -C /opt/
   rm -f "${MAVEN_TAR}"
-
-  # Permanent environment variables
-  if ! grep -q "MAVEN_HOME" /etc/profile.d/maven.sh 2>/dev/null; then
-    echo "export MAVEN_HOME=${MAVEN_DIR}" | sudo tee /etc/profile.d/maven.sh >/dev/null
-    echo 'export PATH=$PATH:$MAVEN_HOME/bin' | sudo tee -a /etc/profile.d/maven.sh >/dev/null
-    sudo chmod +x /etc/profile.d/maven.sh
-  fi
+  sudo tee /etc/profile.d/maven.sh >/dev/null <<EOF
+export MAVEN_HOME=${MAVEN_DIR}
+export PATH=\$PATH:\$MAVEN_HOME/bin
+EOF
+  sudo chmod +x /etc/profile.d/maven.sh
   source /etc/profile.d/maven.sh
-  echo " Maven installed successfully: $(mvn -v | head -n 1)"
+  sudo ln -sf ${MAVEN_DIR}/bin/mvn /usr/bin/mvn
+  echo "✅ Maven installed: $(mvn -v | head -n1)"
 }
 
-# -------------------------------
-# Install AWS CLI v2
-# -------------------------------
-install_aws_cli() {
-  echo "[*] Installing AWS CLI..."
-  if command -v aws >/dev/null 2>&1; then
-    echo " AWS CLI already installed: $(aws --version)"
-    return
-  fi
-  curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
-  unzip -q /tmp/awscliv2.zip -d /tmp
-  sudo /tmp/aws/install
-  rm -rf /tmp/aws /tmp/awscliv2.zip
-  echo " AWS CLI installed successfully: $(aws --version)"
-}
-
-# -------------------------------
-# Install Docker & Docker Compose
-# -------------------------------
 install_docker() {
-  echo "[*] Installing Docker & Docker Compose..."
-  if command -v docker >/dev/null 2>&1; then
-    echo " Docker already installed: $(docker --version)"
+  echo "[*] Installing Docker & Docker Compose plugin..."
+  if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
+    sudo apt-get update -y
+    sudo apt-get install -y docker.io docker-compose-plugin
   else
-    if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
-      sudo apt-get install -y docker.io
+    if command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y docker docker-compose-plugin
     else
-      if command -v dnf >/dev/null 2>&1; then
-        sudo dnf install -y docker
-      else
-        sudo yum install -y docker
-      fi
+      sudo yum install -y docker docker-compose-plugin
     fi
   fi
-
   sudo systemctl enable docker
   sudo systemctl start docker
-
-  # Docker Compose v2
-  if ! command -v docker-compose >/dev/null 2>&1; then
-    sudo curl -L "https://github.com/docker/compose/releases/download/v2.21.2/docker-compose-$(uname -s)-$(uname -m)" \
-      -o /usr/local/bin/docker-compose
-    sudo chmod +x /usr/local/bin/docker-compose
-  fi
-
-  echo " Docker & Docker Compose installed successfully"
+  echo "✅ Docker & Compose installed"
 }
 
-# -------------------------------
-# Install dependencies
-# -------------------------------
 install_dependencies() {
-  echo "[*] Installing dependencies: git, curl, wget, fontconfig, Java 21..."
+  echo "[*] Installing dependencies: Git, Curl, Wget, Fontconfig, Java 21..."
   if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
     sudo apt-get update -y
     sudo apt-get install -y git curl wget fontconfig openjdk-21-jdk unzip
@@ -117,60 +91,44 @@ install_dependencies() {
       sudo dnf upgrade -y
       sudo dnf install -y git curl wget fontconfig java-21-openjdk unzip
     else
-      sudo yum upgrade -y
+      sudo yum update -y
       sudo yum install -y git curl wget fontconfig java-21-openjdk unzip
     fi
   fi
 }
 
-# -------------------------------
-# Add users to Docker group
-# -------------------------------
 add_users_to_docker() {
   echo "[*] Adding users to Docker group..."
   for u in "${USERS_TO_ADD[@]}"; do
-    if id "$u" &>/dev/null; then
-      sudo usermod -aG docker "$u"
-      echo " User $u added to Docker group"
-    fi
+    id "$u" &>/dev/null && sudo usermod -aG docker "$u"
   done
 }
 
 # -------------------------------
-# Verification and Logging
-# -------------------------------
-verify_installations() {
-  echo "[*] Verifying installations..."
-  echo "==== Installed Versions ====" > "$VERSION_LOG"
-  java -version 2>&1 | tee -a "$VERSION_LOG"
-  docker --version 2>&1 | tee -a "$VERSION_LOG"
-  docker-compose --version 2>&1 | tee -a "$VERSION_LOG"
-  git --version 2>&1 | tee -a "$VERSION_LOG"
-  mvn -v 2>&1 | tee -a "$VERSION_LOG"
-  aws --version 2>&1 | tee -a "$VERSION_LOG"
-  echo "All installation versions logged in $VERSION_LOG"
-}
-
-# -------------------------------
-# Main Script Execution
+# Execute installations
 # -------------------------------
 install_dependencies
-install_maven
 install_aws_cli
+install_maven
 install_docker
 add_users_to_docker
-verify_installations
+
+# -------------------------------
+# Verification
+# -------------------------------
+echo "[*] Verifying installed versions..." | tee "$VERSION_LOG"
+java -version 2>&1 | tee -a "$VERSION_LOG"
+docker --version 2>&1 | tee -a "$VERSION_LOG"
+docker compose version 2>&1 | tee -a "$VERSION_LOG"
+git --version 2>&1 | tee -a "$VERSION_LOG"
+mvn -v 2>&1 | tee -a "$VERSION_LOG"
+aws --version 2>&1 | tee -a "$VERSION_LOG"
+
+echo "[*] Docker hello-world test..."
+sudo docker run --rm hello-world || echo "⚠️ Docker test failed"
 
 echo "==============================================="
-echo "  Backend Server Setup Completed Successfully "
-echo "==============================================="
-echo " Installed components:"
-echo " - Java 21"
-echo " - Maven 3.9.11"
-echo " - AWS CLI v2"
-echo " - Docker & Docker Compose"
-echo " - Git"
-echo " Docker group access granted to: ${USERS_TO_ADD[*]}"
+echo " Backend Setup Completed Successfully!"
+echo " Versions logged in $VERSION_LOG"
 echo " Logs: $LOG_FILE"
-echo " Versions logged: $VERSION_LOG"
 echo "==============================================="
