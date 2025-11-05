@@ -2,16 +2,14 @@
 set -euo pipefail
 
 LOG_FILE="/var/log/jenkins_master_setup.log"
-VERSION_LOG="/var/log/backend_versions.log"
+VERSION_LOG="/var/log/jenkins_master_versions.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "==============================================="
 echo " Jenkins Master Setup Script - Starting "
 echo "==============================================="
 
-# -------------------------------
 # Detect OS
-# -------------------------------
 if [ -f /etc/os-release ]; then
   . /etc/os-release
   OS=$ID
@@ -27,117 +25,105 @@ echo "Detected OS: $OS"
 echo "Current User: $CURRENT_USER"
 
 # -------------------------------
-# Install AWS CLI v2
+# Functions
 # -------------------------------
+
 install_aws_cli() {
   echo "[*] Installing AWS CLI v2..."
-  if command -v aws >/dev/null 2>&1; then
-    echo " AWS CLI already installed: $(aws --version)"
-    return
-  fi
-
+  command -v aws >/dev/null 2>&1 && { echo " AWS CLI already installed: $(aws --version)"; return; }
   curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
-  if [[ ! -f /tmp/awscliv2.zip ]]; then
-    echo "❌ Failed to download AWS CLI"
-    exit 1
-  fi
-
+  [[ ! -f /tmp/awscliv2.zip ]] && { echo "❌ Failed to download AWS CLI"; exit 1; }
   if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get install -y unzip >/dev/null
-  elif command -v yum >/dev/null 2>&1; then
-    sudo yum install -y unzip >/dev/null
-  elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y unzip >/dev/null
+  else
+    sudo yum install -y unzip >/dev/null || sudo dnf install -y unzip >/dev/null
   fi
-
   unzip -q /tmp/awscliv2.zip -d /tmp
   sudo /tmp/aws/install
   rm -rf /tmp/aws /tmp/awscliv2.zip
   echo "✅ AWS CLI v2 installed: $(aws --version)"
 }
 
-# -------------------------------
-# Install Apache Maven 3.9.11
-# -------------------------------
 install_maven() {
   MAVEN_VERSION="3.9.11"
   MAVEN_DIR="/opt/apache-maven-${MAVEN_VERSION}"
   MAVEN_TAR="apache-maven-${MAVEN_VERSION}-bin.tar.gz"
   MAVEN_URL="https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/${MAVEN_TAR}"
-
-  echo "[*] Installing Apache Maven ${MAVEN_VERSION}..."
-  if command -v mvn >/dev/null 2>&1; then
-    echo " Maven already installed: $(mvn -v | head -n 1)"
-    return
-  fi
-
+  echo "[*] Installing Maven ${MAVEN_VERSION}..."
+  command -v mvn >/dev/null 2>&1 && { echo " Maven already installed: $(mvn -v | head -n1)"; return; }
   cd /tmp
   curl -fsSLO "${MAVEN_URL}" || { echo "❌ Failed to download Maven"; exit 1; }
   sudo tar -xzf "${MAVEN_TAR}" -C /opt/
   rm -f "${MAVEN_TAR}"
-
   sudo tee /etc/profile.d/maven.sh >/dev/null <<EOF
 export MAVEN_HOME=${MAVEN_DIR}
 export PATH=\$PATH:\$MAVEN_HOME/bin
 EOF
   sudo chmod +x /etc/profile.d/maven.sh
   source /etc/profile.d/maven.sh
-
   sudo ln -sf ${MAVEN_DIR}/bin/mvn /usr/bin/mvn
-  echo "✅ Maven installed successfully: $(mvn -v | head -n 1)"
+  echo "✅ Maven installed: $(mvn -v | head -n1)"
 }
 
-# -------------------------------
-# Install Docker Compose
-# -------------------------------
-install_docker_compose() {
-  echo "[*] Installing Docker Compose..."
-  DOCKER_COMPOSE_VERSION="v2.22.2"
-  sudo curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-  sudo chmod +x /usr/local/bin/docker-compose
-
-  if command -v docker-compose >/dev/null 2>&1; then
-    echo "✅ Docker Compose installed: $(docker-compose --version)"
-  else
-    echo "❌ Docker Compose installation failed"
-  fi
-}
-
-# -------------------------------
-# Add users to Docker group
-# -------------------------------
-add_users_to_docker() {
-  echo "[*] Adding users to Docker group..."
-  for u in "${USERS_TO_ADD[@]}"; do
-    if id "$u" &>/dev/null; then
-      sudo usermod -aG docker "$u"
-      echo " User $u added to Docker group"
-    fi
-  done
-}
-
-# -------------------------------
-# Install dependencies
-# -------------------------------
-install_dependencies() {
-  echo "[*] Installing dependencies: git, curl, wget, fontconfig, Java 21..."
+install_docker() {
+  echo "[*] Installing Docker & Docker Compose plugin..."
   if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
     sudo apt-get update -y
-    sudo apt-get install -y git curl wget fontconfig openjdk-21-jdk docker.io unzip
+    sudo apt-get install -y docker.io docker-compose-plugin
+  else
+    if command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y docker docker-compose-plugin
+    else
+      sudo yum install -y docker docker-compose-plugin
+    fi
+  fi
+  sudo systemctl enable docker
+  sudo systemctl start docker
+  echo "✅ Docker & Compose installed"
+}
+
+install_dependencies() {
+  echo "[*] Installing dependencies: Git, Curl, Wget, Fontconfig, Java 21..."
+  if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
+    sudo apt-get update -y
+    sudo apt-get install -y git curl wget fontconfig openjdk-21-jdk unzip
   else
     if command -v dnf >/dev/null 2>&1; then
       sudo dnf upgrade -y
-      sudo dnf install -y git curl wget fontconfig java-21-openjdk docker unzip
+      sudo dnf install -y git curl wget fontconfig java-21-openjdk unzip
     else
       sudo yum update -y
-      sudo yum install -y git curl wget fontconfig java-21-openjdk docker unzip
+      sudo yum install -y git curl wget fontconfig java-21-openjdk unzip
     fi
   fi
 }
 
-# -------------------------------
-# Start & Enable Jenkins
-# -------------------------------
+install_jenkins() {
+  echo "[*] Installing Jenkins..."
+  if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
+    sudo mkdir -p /etc/apt/keyrings
+    curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | sudo tee /etc/apt/keyrings/jenkins-keyring.asc >/dev/null
+    echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" | sudo tee /etc/apt/sources.list.d/jenkins.list >/dev/null
+    sudo apt-get update -y
+    sudo apt-get install -y jenkins
+  else
+    sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
+    sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
+    if command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y jenkins
+    else
+      sudo yum install -y jenkins
+    fi
+  fi
+}
+
+add_users_to_docker() {
+  echo "[*] Adding users to Docker group..."
+  for u in "${USERS_TO_ADD[@]}"; do
+    id "$u" &>/dev/null && sudo usermod -aG docker "$u"
+  done
+}
+
 start_and_enable_jenkins() {
   sudo systemctl daemon-reload
   sudo systemctl enable jenkins
@@ -145,83 +131,33 @@ start_and_enable_jenkins() {
 }
 
 # -------------------------------
-# Jenkins Installation
+# Execute installations
 # -------------------------------
-if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
-  echo " Installing Jenkins on Ubuntu/Debian..."
-  install_dependencies
-  install_aws_cli
-  install_maven
-  install_docker_compose
-
-  sudo mkdir -p /etc/apt/keyrings
-  curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | sudo tee /etc/apt/keyrings/jenkins-keyring.asc >/dev/null
-  echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" | sudo tee /etc/apt/sources.list.d/jenkins.list >/dev/null
-  sudo apt-get update -y
-  sudo apt-get install -y jenkins
-
-elif [[ "$OS" == "amzn" || "$OS" == "rhel" || "$OS" == "centos" ]]; then
-  echo " Installing Jenkins on Amazon Linux / RHEL / CentOS..."
-  install_dependencies
-  install_aws_cli
-  install_maven
-  install_docker_compose
-
-  sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
-  sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
-  if command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y jenkins
-  else
-    sudo yum install -y jenkins
-  fi
-else
-  echo " Unsupported OS: $OS"
-  exit 1
-fi
-
-# -------------------------------
-# Docker & Jenkins user setup
-# -------------------------------
-sudo systemctl enable docker
-sudo systemctl start docker
+install_dependencies
+install_aws_cli
+install_maven
+install_docker
+install_jenkins
 add_users_to_docker
 start_and_enable_jenkins
 
 # -------------------------------
-# Docker verification test
+# Verification
 # -------------------------------
-echo "[*] Verifying Docker by running hello-world container..."
-sudo docker run --rm hello-world || echo "⚠️ Docker test failed. Check Docker service."
-
-# -------------------------------
-# Verification & Logging
-# -------------------------------
-echo "[*] Verifying installed versions..."
-echo "==== Installed Versions ====" > "$VERSION_LOG"
+echo "[*] Verifying installed versions..." | tee "$VERSION_LOG"
 java -version 2>&1 | tee -a "$VERSION_LOG"
 docker --version 2>&1 | tee -a "$VERSION_LOG"
-docker-compose --version 2>&1 | tee -a "$VERSION_LOG"
+docker compose version 2>&1 | tee -a "$VERSION_LOG"
 git --version 2>&1 | tee -a "$VERSION_LOG"
 mvn -v 2>&1 | tee -a "$VERSION_LOG"
 aws --version 2>&1 | tee -a "$VERSION_LOG"
 
-# -------------------------------
-# Final Output
-# -------------------------------
+echo "[*] Docker hello-world test..."
+sudo docker run --rm hello-world || echo "⚠️ Docker test failed"
+
 echo "==============================================="
 echo " Jenkins Master Setup Completed Successfully!"
-echo "==============================================="
 echo " Jenkins URL: http://<EC2-Public-IP>:8080"
-echo
-echo " Maven version check:"
-mvn -v || echo " Maven not found or PATH not updated (try re-login)"
-echo
-echo " Jenkins Service Status:"
-sudo systemctl status jenkins --no-pager | head -n 10
-echo
-echo " Initial Admin Password:"
-sudo cat /var/lib/jenkins/secrets/initialAdminPassword 2>/dev/null || echo "Jenkins may still be initializing..."
-echo
 echo " Versions logged in $VERSION_LOG"
 echo " Logs: $LOG_FILE"
 echo "==============================================="
