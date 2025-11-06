@@ -22,6 +22,20 @@ fi
 echo " Detected OS: $OS"
 
 # -------------------------------------------------------
+# Function: Wait for network
+# -------------------------------------------------------
+wait_for_network() {
+  echo "[*] Waiting for network..."
+  until ping -c1 8.8.8.8 >/dev/null 2>&1; do
+    echo " Network not ready, waiting 5s..."
+    sleep 5
+  done
+  echo "[*] Network is ready!"
+}
+
+wait_for_network
+
+# -------------------------------------------------------
 # Function: Wait for apt/dpkg lock (Ubuntu/Debian)
 # -------------------------------------------------------
 wait_for_apt_lock() {
@@ -36,6 +50,25 @@ wait_for_apt_lock() {
 }
 
 # -------------------------------------------------------
+# Function: Retry downloads
+# -------------------------------------------------------
+retry_curl() {
+  local url="$1"
+  local dest="$2"
+  local n=0
+  until [ $n -ge 5 ]; do
+    curl -fsSL "$url" -o "$dest" && break
+    n=$((n+1))
+    echo " Retry $n for $url"
+    sleep 5
+  done
+  if [ $n -ge 5 ]; then
+    echo "❌ Failed to download $url after 5 attempts"
+    exit 1
+  fi
+}
+
+# -------------------------------------------------------
 # Function: Install AWS CLI v2
 # -------------------------------------------------------
 install_aws_cli() {
@@ -45,11 +78,7 @@ install_aws_cli() {
     return
   fi
 
-  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-  if [ ! -f awscliv2.zip ]; then
-    echo " Failed to download AWS CLI package"
-    exit 1
-  fi
+  retry_curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" "/tmp/awscliv2.zip"
 
   if command -v apt-get >/dev/null 2>&1; then
     wait_for_apt_lock
@@ -60,6 +89,7 @@ install_aws_cli() {
     sudo dnf install -y unzip >/dev/null
   fi
 
+  cd /tmp
   unzip -q awscliv2.zip
   sudo ./aws/install
   rm -rf aws awscliv2.zip
@@ -82,10 +112,10 @@ install_maven() {
   fi
 
   cd /tmp
-  curl -fsSLO "${MAVEN_URL}" || { echo "❌ Failed to download Maven"; exit 1; }
+  retry_curl "${MAVEN_URL}" "/tmp/${MAVEN_TAR}"
 
-  sudo tar -xzf "${MAVEN_TAR}" -C /opt/
-  rm -f "${MAVEN_TAR}"
+  sudo tar -xzf "/tmp/${MAVEN_TAR}" -C /opt/
+  rm -f "/tmp/${MAVEN_TAR}"
 
   echo "Configuring Maven environment..."
   sudo tee /etc/profile.d/maven.sh >/dev/null <<EOF
@@ -95,8 +125,8 @@ EOF
 
   sudo chmod +x /etc/profile.d/maven.sh
   source /etc/profile.d/maven.sh
-
   sudo ln -sf ${MAVEN_DIR}/bin/mvn /usr/bin/mvn
+
   echo "✅ Maven installed successfully: $(mvn -v | head -n 1)"
 }
 
@@ -125,7 +155,7 @@ if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
 
   echo "[2/9] Installing dependencies (Java 21, Docker, Git)..."
   wait_for_apt_lock
-  sudo apt-get install -y wget curl fontconfig openjdk-21-jdk docker.io git
+  sudo apt-get install -y wget curl fontconfig openjdk-21-jdk docker.io git || true
 
   echo "[3/9] Installing AWS CLI..."
   install_aws_cli
@@ -134,15 +164,14 @@ if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
   install_maven
 
   echo "[5/9] Adding Jenkins repository..."
-  curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | sudo tee \
-    /usr/share/keyrings/jenkins-keyring.asc >/dev/null
+  retry_curl "https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key" "/tmp/jenkins.key"
+  sudo tee /usr/share/keyrings/jenkins-keyring.asc >/dev/null < /tmp/jenkins.key
   echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] \
-https://pkg.jenkins.io/debian-stable binary/ | sudo tee \
-    /etc/apt/sources.list.d/jenkins.list >/dev/null
-
-  echo "[6/9] Installing Jenkins..."
+https://pkg.jenkins.io/debian-stable binary/ | sudo tee /etc/apt/sources.list.d/jenkins.list >/dev/null
   wait_for_apt_lock
   sudo apt-get update -y
+
+  echo "[6/9] Installing Jenkins..."
   wait_for_apt_lock
   sudo apt-get install -y jenkins || { echo "❌ Jenkins installation failed"; exit 1; }
 
@@ -167,29 +196,21 @@ https://pkg.jenkins.io/debian-stable binary/ | sudo tee \
 # =====================================================================
 elif [[ "$OS" == "amzn" || "$OS" == "rhel" || "$OS" == "centos" ]]; then
   echo " Installing Jenkins on Amazon Linux / RHEL / CentOS..."
-
   if command -v dnf >/dev/null 2>&1; then
     sudo dnf upgrade -y
+    sudo dnf install -y fontconfig java-21-openjdk docker git unzip wget curl || true
   else
     sudo yum update -y
-  fi
-
-  sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
-  sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
-
-  if command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y fontconfig java-21-openjdk docker git
-  else
-    sudo yum install -y fontconfig java-21-openjdk docker git
+    sudo yum install -y fontconfig java-21-openjdk docker git unzip wget curl || true
   fi
 
   install_aws_cli
   install_maven
 
   if command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y jenkins
+    sudo dnf install -y jenkins || true
   else
-    sudo yum install -y jenkins
+    sudo yum install -y jenkins || true
   fi
 
   sudo systemctl enable docker
@@ -200,6 +221,7 @@ elif [[ "$OS" == "amzn" || "$OS" == "rhel" || "$OS" == "centos" ]]; then
   fi
 
   start_and_enable_jenkins
+
 else
   echo " Unsupported OS: $OS"
   exit 1
